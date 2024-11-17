@@ -7,9 +7,9 @@ chains: [Bitcoin, Dash, BitcoinCash, Litecoin]
 
 walletnode:
   btc:
-    rpc_url: 'nd-314-634-477.p2pify.com'
-    rpc_user: 'lucid-swanson'
-    rpc_pass: 'salon-ahead-vanish-dial-curdle-arise'
+    rpc_url: 'http://127.0.0.1:18556'
+    rpc_user: 'jamie'
+    rpc_pass: '123456'
     data_api_url: 'https://www.oklink.com/'
     data_api_key: '5181d535-b68f-41cf-bbc6-25905e46b6a6'
     data_api_token: ''
