@@ -3,7 +3,9 @@ package bitcoin
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"github.com/dapplink-labs/wallet-chain-utxo/chain/bitcoin/types"
 	"math/big"
 	"strconv"
 	"strings"
@@ -37,6 +39,7 @@ const (
 
 type ChainAdaptor struct {
 	btcClient       base.BaseClient
+	btcdClient      BtcdClient
 	btcDataClient   *base.BaseDataClient
 	thirdPartClient *BcClient
 }
@@ -57,8 +60,14 @@ func NewChainAdaptor(conf *config.Config) (chain.IChainAdaptor, error) {
 		log.Error("new blockchain client fail", "err", err)
 		return nil, err
 	}
+	bccdClient, err := NewBtcdClient(conf.WalletNode.Btc.RpcUrl, conf.WalletNode.Btc.RpcUser, conf.WalletNode.Btc.RpcPass)
+	if err != nil {
+		log.Error("new blockchain client fail", "err", err)
+		return nil, err
+	}
 	return &ChainAdaptor{
-		btcClient:       baseClient,
+		btcClient:       *baseClient,
+		btcdClient:      bccdClient,
 		btcDataClient:   baseDataClient,
 		thirdPartClient: bcClient,
 	}, nil
@@ -207,6 +216,14 @@ func (c *ChainAdaptor) GetFee(req *utxo.FeeRequest) (*utxo.FeeResponse, error) {
 }
 
 func (c *ChainAdaptor) GetAccount(req *utxo.AccountRequest) (*utxo.AccountResponse, error) {
+	if req == nil || req.Address == "" {
+		return &utxo.AccountResponse{
+			Code:    common2.ReturnCode_ERROR,
+			Msg:     "invalid parameters",
+			Balance: "0",
+		}, fmt.Errorf("invalid parameters")
+	}
+
 	balance, err := c.thirdPartClient.GetAccountBalance(req.Address)
 	if err != nil {
 		return &utxo.AccountResponse{
@@ -215,6 +232,7 @@ func (c *ChainAdaptor) GetAccount(req *utxo.AccountRequest) (*utxo.AccountRespon
 			Balance: "0",
 		}, err
 	}
+
 	return &utxo.AccountResponse{
 		Code:    common2.ReturnCode_SUCCESS,
 		Msg:     "get btc balance success",
@@ -251,63 +269,63 @@ func (c *ChainAdaptor) GetUnspentOutputs(req *utxo.UnspentOutputsRequest) (*utxo
 }
 
 func (c *ChainAdaptor) GetBlockByNumber(req *utxo.BlockNumberRequest) (*utxo.BlockResponse, error) {
-	//blockHash, err := c.btcClient.GetBlockHash(req.Height)
-	//if err != nil {
-	//	log.Error("get block hash by number fail", "err", err)
-	//	return &utxo.BlockResponse{
-	//		Code: common2.ReturnCode_ERROR,
-	//		Msg:  "get block hash fail",
-	//	}, err
-	//}
-	//var params []json.RawMessage
-	//numBlocksJSON, _ := json.Marshal(blockHash)
-	//params = []json.RawMessage{numBlocksJSON}
-	//block, _ := c.btcClient.Client.RawRequest("getblock", params)
-	//var resultBlock types.BlockData
-	//err = json.Unmarshal(block, &resultBlock)
-	//if err != nil {
-	//	log.Error("Unmarshal json fail", "err", err)
-	//}
-	//var txList []*utxo.TransactionList
-	//for _, txid := range resultBlock.Tx {
-	//	txIdJson, _ := json.Marshal(txid)
-	//	boolJSON, _ := json.Marshal(true)
-	//	dataJSON := []json.RawMessage{txIdJson, boolJSON}
-	//	tx, err := c.btcClient.Client.RawRequest("getrawtransaction", dataJSON)
-	//	if err != nil {
-	//		fmt.Println("get raw transaction fail", "err", err)
-	//	}
-	//	var rawTx types.RawTransactionData
-	//	err = json.Unmarshal(tx, &rawTx)
-	//	if err != nil {
-	//		log.Error("json unmarshal fail", "err", err)
-	//		return nil, err
-	//	}
-	//	var vinList []*utxo.Vin
-	//	for _, vin := range rawTx.Vin {
-	//		vinItem := &utxo.Vin{
-	//			Hash:    vin.TxId,
-	//			Index:   uint32(vin.Vout),
-	//			Amount:  10,
-	//			Address: vin.ScriptSig.Asm,
-	//		}
-	//		vinList = append(vinList, vinItem)
-	//	}
-	//	var voutList []*utxo.Vout
-	//	for _, vout := range rawTx.Vout {
-	//		voutItem := &utxo.Vout{
-	//			Address: vout.ScriptPubKey.Address,
-	//			Amount:  int64(vout.Value),
-	//		}
-	//		voutList = append(voutList, voutItem)
-	//	}
-	//	txItem := &utxo.TransactionList{
-	//		Hash: rawTx.Hash,
-	//		Vin:  vinList,
-	//		Vout: voutList,
-	//	}
-	//	txList = append(txList, txItem)
-	//}
+	blockHash, err := c.btcClient.GetBlockHash(req.Height)
+	if err != nil {
+		log.Error("get block hash by number fail", "err", err)
+		return &utxo.BlockResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  "get block hash fail",
+		}, err
+	}
+	var params []json.RawMessage
+	numBlocksJSON, _ := json.Marshal(blockHash)
+	params = []json.RawMessage{numBlocksJSON}
+	block, _ := c.btcClient.Client.RawRequest("getblock", params)
+	var resultBlock types.BlockData
+	err = json.Unmarshal(block, &resultBlock)
+	if err != nil {
+		log.Error("Unmarshal json fail", "err", err)
+	}
+	var txList []*utxo.TransactionList
+	for _, txid := range resultBlock.Tx {
+		txIdJson, _ := json.Marshal(txid)
+		boolJSON, _ := json.Marshal(true)
+		dataJSON := []json.RawMessage{txIdJson, boolJSON}
+		tx, err := c.btcClient.Client.RawRequest("getrawtransaction", dataJSON)
+		if err != nil {
+			fmt.Println("get raw transaction fail", "err", err)
+		}
+		var rawTx types.RawTransactionData
+		err = json.Unmarshal(tx, &rawTx)
+		if err != nil {
+			log.Error("json unmarshal fail", "err", err)
+			return nil, err
+		}
+		var vinList []*utxo.Vin
+		for _, vin := range rawTx.Vin {
+			vinItem := &utxo.Vin{
+				Hash:    vin.TxId,
+				Index:   uint32(vin.Vout),
+				Amount:  10,
+				Address: vin.ScriptSig.Asm,
+			}
+			vinList = append(vinList, vinItem)
+		}
+		var voutList []*utxo.Vout
+		for _, vout := range rawTx.Vout {
+			voutItem := &utxo.Vout{
+				Address: vout.ScriptPubKey.Address,
+				Amount:  int64(vout.Value),
+			}
+			voutList = append(voutList, voutItem)
+		}
+		txItem := &utxo.TransactionList{
+			Hash: rawTx.Hash,
+			Vin:  vinList,
+			Vout: voutList,
+		}
+		txList = append(txList, txItem)
+	}
 	return &utxo.BlockResponse{
 		Code:   common2.ReturnCode_SUCCESS,
 		Msg:    "get block by number succcess",
@@ -318,147 +336,172 @@ func (c *ChainAdaptor) GetBlockByNumber(req *utxo.BlockNumberRequest) (*utxo.Blo
 }
 
 func (c *ChainAdaptor) GetBlockByHash(req *utxo.BlockHashRequest) (*utxo.BlockResponse, error) {
-	//var params []json.RawMessage
-	//numBlocksJSON, _ := json.Marshal(req.Hash)
-	//params = []json.RawMessage{numBlocksJSON}
-	//block, _ := c.btcClient.Client.RawRequest("getblock", params)
-	//var resultBlock types.BlockData
-	//err := json.Unmarshal(block, &resultBlock)
-	//if err != nil {
-	//	log.Error("Unmarshal json fail", "err", err)
-	//}
-	//var txList []*utxo.TransactionList
-	//for _, txid := range resultBlock.Tx {
-	//	txIdJson, _ := json.Marshal(txid)
-	//	boolJSON, _ := json.Marshal(true)
-	//	dataJSON := []json.RawMessage{txIdJson, boolJSON}
-	//	tx, err := c.btcClient.Client.RawRequest("getrawtransaction", dataJSON)
-	//	if err != nil {
-	//		fmt.Println("get raw transaction fail", "err", err)
-	//	}
-	//	var rawTx types.RawTransactionData
-	//	err = json.Unmarshal(tx, &rawTx)
-	//	if err != nil {
-	//		log.Error("json unmarshal fail", "err", err)
-	//		return nil, err
-	//	}
-	//	var vinList []*utxo.Vin
-	//	for _, vin := range rawTx.Vin {
-	//		vinItem := &utxo.Vin{
-	//			Hash:    vin.TxId,
-	//			Index:   uint32(vin.Vout),
-	//			Amount:  10,
-	//			Address: vin.ScriptSig.Asm,
-	//		}
-	//		vinList = append(vinList, vinItem)
-	//	}
-	//	var voutList []*utxo.Vout
-	//	for _, vout := range rawTx.Vout {
-	//		voutItem := &utxo.Vout{
-	//			Address: vout.ScriptPubKey.Address,
-	//			Amount:  int64(vout.Value),
-	//		}
-	//		voutList = append(voutList, voutItem)
-	//	}
-	//	txItem := &utxo.TransactionList{
-	//		Hash: rawTx.Hash,
-	//		Vin:  vinList,
-	//		Vout: voutList,
-	//	}
-	//	txList = append(txList, txItem)
-	//}
+	var params []json.RawMessage
+	numBlocksJSON, _ := json.Marshal(req.Hash)
+	params = []json.RawMessage{numBlocksJSON}
+	block, _ := c.btcClient.Client.RawRequest("getblock", params)
+	var resultBlock types.BlockData
+	err := json.Unmarshal(block, &resultBlock)
+	if err != nil {
+		log.Error("Unmarshal json fail", "err", err)
+	}
+	var txList []*utxo.TransactionList
+	for _, txid := range resultBlock.Tx {
+		txIdJson, _ := json.Marshal(txid)
+		boolJSON, _ := json.Marshal(true)
+		dataJSON := []json.RawMessage{txIdJson, boolJSON}
+		tx, err := c.btcClient.Client.RawRequest("getrawtransaction", dataJSON)
+		if err != nil {
+			fmt.Println("get raw transaction fail", "err", err)
+		}
+		var rawTx types.RawTransactionData
+		err = json.Unmarshal(tx, &rawTx)
+		if err != nil {
+			log.Error("json unmarshal fail", "err", err)
+			return nil, err
+		}
+		var vinList []*utxo.Vin
+		for _, vin := range rawTx.Vin {
+			vinItem := &utxo.Vin{
+				Hash:    vin.TxId,
+				Index:   uint32(vin.Vout),
+				Amount:  10,
+				Address: vin.ScriptSig.Asm,
+			}
+			vinList = append(vinList, vinItem)
+		}
+		var voutList []*utxo.Vout
+		for _, vout := range rawTx.Vout {
+			voutItem := &utxo.Vout{
+				Address: vout.ScriptPubKey.Address,
+				Amount:  int64(vout.Value),
+			}
+			voutList = append(voutList, voutItem)
+		}
+		txItem := &utxo.TransactionList{
+			Hash: rawTx.Hash,
+			Vin:  vinList,
+			Vout: voutList,
+		}
+		txList = append(txList, txItem)
+	}
 	return &utxo.BlockResponse{
-		Code: common2.ReturnCode_SUCCESS,
-		Msg:  "get block by number succcess",
-		//Height: resultBlock.Height,
-		Hash: req.Hash,
-		//TxList: txList,
+		Code:   common2.ReturnCode_SUCCESS,
+		Msg:    "get block by number succcess",
+		Height: resultBlock.Height,
+		Hash:   req.Hash,
+		TxList: txList,
 	}, nil
 }
 
 func (c *ChainAdaptor) GetBlockHeaderByHash(req *utxo.BlockHeaderHashRequest) (*utxo.BlockHeaderResponse, error) {
-	//hash, err := chainhash.NewHashFromStr(req.Hash)
-	//if err != nil {
-	//	log.Error("format string to hash fail", "err", err)
-	//}
-	//blockHeader, err := c.btcClient.Client.GetBlockHeader(hash)
-	//if err != nil {
-	//	return &utxo.BlockHeaderResponse{
-	//		Code: common2.ReturnCode_ERROR,
-	//		Msg:  "get block header fail",
-	//	}, err
-	//}
+	hash, err := chainhash.NewHashFromStr(req.Hash)
+	if err != nil {
+		log.Error("format string to hash fail", "err", err)
+	}
+	blockHeader, err := c.btcClient.Client.GetBlockHeader(hash)
+	if err != nil {
+		return &utxo.BlockHeaderResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  "get block header fail",
+		}, err
+	}
 	return &utxo.BlockHeaderResponse{
-		Code: common2.ReturnCode_SUCCESS,
-		Msg:  "get block header success",
-		//ParentHash: blockHeader.PrevBlock.String(),
-		//Number:     string(blockHeader.Version),
-		BlockHash: req.Hash,
-		//MerkleRoot: blockHeader.MerkleRoot.String(),
+		Code:       common2.ReturnCode_SUCCESS,
+		Msg:        "get block header success",
+		ParentHash: blockHeader.PrevBlock.String(),
+		Number:     string(blockHeader.Version),
+		BlockHash:  req.Hash,
+		MerkleRoot: blockHeader.MerkleRoot.String(),
 	}, nil
 }
 
 func (c *ChainAdaptor) GetBlockHeaderByNumber(req *utxo.BlockHeaderNumberRequest) (*utxo.BlockHeaderResponse, error) {
-	//blockNumber := req.Height
-	//if req.Height == 0 {
-	//	latestBlock, err := c.btcClient.Client.GetBlockCount()
-	//	if err != nil {
-	//		return &utxo.BlockHeaderResponse{
-	//			Code: common2.ReturnCode_ERROR,
-	//			Msg:  "get latest block fail",
-	//		}, err
-	//	}
-	//	blockNumber = latestBlock
-	//}
-	//blockHash, err := c.btcClient.Client.GetBlockHash(blockNumber)
-	//if err != nil {
-	//	log.Error("get block hash by number fail", "err", err)
-	//	return &utxo.BlockHeaderResponse{
-	//		Code: common2.ReturnCode_ERROR,
-	//		Msg:  "get block hash fail",
-	//	}, err
-	//}
-	//blockHeader, err := c.btcClient.Client.GetBlockHeader(blockHash)
-	//if err != nil {
-	//	return &utxo.BlockHeaderResponse{
-	//		Code: common2.ReturnCode_ERROR,
-	//		Msg:  "get block header fail",
-	//	}, err
-	//}
+	blockNumber := req.Height
+	if req.Height == 0 {
+		latestBlock, err := c.btcClient.Client.GetBlockCount()
+		if err != nil {
+			return &utxo.BlockHeaderResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  "get latest block fail",
+			}, err
+		}
+		blockNumber = latestBlock
+	}
+	blockHash, err := c.btcClient.Client.GetBlockHash(blockNumber)
+	if err != nil {
+		log.Error("get block hash by number fail", "err", err)
+		return &utxo.BlockHeaderResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  "get block hash fail",
+		}, err
+	}
+	blockHeader, err := c.btcClient.Client.GetBlockHeader(blockHash)
+	if err != nil {
+		return &utxo.BlockHeaderResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  "get block header fail",
+		}, err
+	}
 	return &utxo.BlockHeaderResponse{
-		Code: common2.ReturnCode_SUCCESS,
-		Msg:  "get block header success",
-		//ParentHash: blockHeader.PrevBlock.String(),
-		//Number:     strconv.FormatInt(blockNumber, 10),
-		//BlockHash:  blockHash.String(),
-		//MerkleRoot: blockHeader.MerkleRoot.String(),
+		Code:       common2.ReturnCode_SUCCESS,
+		Msg:        "get block header success",
+		ParentHash: blockHeader.PrevBlock.String(),
+		Number:     strconv.FormatInt(blockNumber, 10),
+		BlockHash:  blockHash.String(),
+		MerkleRoot: blockHeader.MerkleRoot.String(),
 	}, nil
 }
 
 func (c *ChainAdaptor) SendTx(req *utxo.SendTxRequest) (*utxo.SendTxResponse, error) {
-	r := bytes.NewReader([]byte(req.RawTx))
+	if req == nil || len(req.RawTx) == 0 {
+		return &utxo.SendTxResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  "invalid request parameters",
+		}, errors.New("invalid request parameters")
+	}
+	if ok, msg := validateChainAndNetwork(req.Chain, req.Network); !ok {
+		return &utxo.SendTxResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  msg,
+		}, errors.New(msg)
+	}
+	rawTxBytes, err := hex.DecodeString(req.RawTx)
+	if err != nil {
+		return &utxo.SendTxResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  "invalid raw transaction hex: " + err.Error(),
+		}, err
+	}
+
 	var msgTx wire.MsgTx
-	err := msgTx.Deserialize(r)
+	if err := msgTx.Deserialize(bytes.NewReader(rawTxBytes)); err != nil {
+		return &utxo.SendTxResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  "failed to deserialize transaction: " + err.Error(),
+		}, err
+	}
+
+	txHash, err := c.btcClient.SendRawTransaction(&msgTx, true)
 	if err != nil {
 		return &utxo.SendTxResponse{
 			Code: common2.ReturnCode_ERROR,
 			Msg:  err.Error(),
 		}, err
 	}
-	//txHash, err := c.btcClient.SendRawTransaction(&msgTx, true)
-	//if err != nil {
-	//	return &utxo.SendTxResponse{
-	//		Code: common2.ReturnCode_ERROR,
-	//		Msg:  err.Error(),
-	//	}, err
-	//}
-	//if strings.Compare(msgTx.TxHash().String(), txHash.String()) != 0 {
-	//	log.Error("broadcast transaction, tx hash mismatch", "local hash", msgTx.TxHash().String(), "hash from net", txHash.String(), "signedTx", req.RawTx)
-	//}
+	// 6. 验证交易哈希
+	localHash := msgTx.TxHash()
+	if localHash.String() != txHash.String() {
+		log.Error("transaction hash mismatch",
+			"local_hash", localHash.String(),
+			"network_hash", txHash.String(),
+			"raw_tx", req.RawTx)
+		// 注意：这里可以选择是否要返回错误，因为哈希不匹配可能表示潜在问题
+	}
 	return &utxo.SendTxResponse{
-		Code: common2.ReturnCode_SUCCESS,
-		Msg:  "send tx success",
-		//TxHash: txHash.String(),
+		Code:   common2.ReturnCode_SUCCESS,
+		Msg:    "send tx success",
+		TxHash: txHash.String(),
 	}, nil
 }
 
@@ -551,155 +594,231 @@ func (c *ChainAdaptor) GetTxByHash(req *utxo.TxHashRequest) (*utxo.TxHashRespons
 }
 
 func (c *ChainAdaptor) CreateUnSignTransaction(req *utxo.UnSignTransactionRequest) (*utxo.UnSignTransactionResponse, error) {
-	txHash, buf, err := c.CalcSignHashes(req.Vin, req.Vout)
+	response := &utxo.UnSignTransactionResponse{
+		Code:       common2.ReturnCode_ERROR,
+		Msg:        "",
+		TxData:     nil,
+		SignHashes: nil,
+	}
+	if ok, msg := validateChainAndNetwork(req.Chain, ""); !ok {
+		err := fmt.Errorf("CreateUnSignTransaction validateChainAndNetwork default failed: %s", msg)
+		log.Error("err", err)
+		response.Msg = err.Error()
+		return nil, err
+	}
+
+	networkParams := &chaincfg.MainNetParams
+	if req.Network != "mainnet" {
+		networkParams = &chaincfg.SimNetParams
+	}
+
+	txHash, buf, err := c.CalcSignHashes(networkParams, req.Vin, req.Vout)
 	if err != nil {
 		log.Error("calc sign hashes fail", "err", err)
 		return nil, err
 	}
-	return &utxo.UnSignTransactionResponse{
-		Code:       common2.ReturnCode_SUCCESS,
-		Msg:        "create un sign transaction success",
-		TxData:     buf,
-		SignHashes: txHash,
-	}, nil
+	response.TxData = buf
+	response.SignHashes = txHash
+	response.Code = common2.ReturnCode_SUCCESS
+	response.Msg = "create un sign transaction success"
+	return response, nil
 }
 
 func (c *ChainAdaptor) BuildSignedTransaction(req *utxo.SignedTransactionRequest) (*utxo.SignedTransactionResponse, error) {
-	//r := bytes.NewReader(req.TxData)
-	//var msgTx wire.MsgTx
-	//err := msgTx.Deserialize(r)
-	//if err != nil {
-	//	log.Error("Create signed transaction msg tx deserialize", "err", err)
-	//	return &utxo.SignedTransactionResponse{
-	//		Code: common2.ReturnCode_ERROR,
-	//		Msg:  err.Error(),
-	//	}, err
-	//}
-	//
-	//if len(req.Signatures) != len(msgTx.TxIn) {
-	//	log.Error("CreateSignedTransaction invalid params", "err", "Signature number mismatch Txin number")
-	//	err = errors.New("Signature number != Txin number")
-	//	return &utxo.SignedTransactionResponse{
-	//		Code: common2.ReturnCode_ERROR,
-	//		Msg:  err.Error(),
-	//	}, err
-	//}
-	//
-	//if len(req.PublicKeys) != len(msgTx.TxIn) {
-	//	log.Error("CreateSignedTransaction invalid params", "err", "Pubkey number mismatch Txin number")
-	//	err = errors.New("Pubkey number != Txin number")
-	//	return &utxo.SignedTransactionResponse{
-	//		Code: common2.ReturnCode_ERROR,
-	//		Msg:  err.Error(),
-	//	}, err
-	//}
-	//
-	//for i, in := range msgTx.TxIn {
-	//	btcecPub, err2 := btcec.ParsePubKey(req.PublicKeys[i])
-	//	if err2 != nil {
-	//		log.Error("CreateSignedTransaction ParsePubKey", "err", err2)
-	//		return &utxo.SignedTransactionResponse{
-	//			Code: common2.ReturnCode_ERROR,
-	//			Msg:  err2.Error(),
-	//		}, err2
-	//	}
-	//	var pkData []byte
-	//	if btcec.IsCompressedPubKey(req.PublicKeys[i]) {
-	//		pkData = btcecPub.SerializeCompressed()
-	//	} else {
-	//		pkData = btcecPub.SerializeUncompressed()
-	//	}
+	response := &utxo.SignedTransactionResponse{
+		Code:         common2.ReturnCode_ERROR,
+		Msg:          "",
+		SignedTxData: nil,
+		Hash:         nil,
+	}
+	if ok, msg := validateChainAndNetwork(req.Chain, ""); !ok {
+		err := fmt.Errorf("BuildSignedTransaction validateChainAndNetwork default failed: %s", msg)
+		log.Error("err", err)
+		response.Msg = err.Error()
+		return nil, err
+	}
 
-	//preTx, err2 := c.btcClient.GetRawTransactionVerbose(&in.PreviousOutPoint.Hash)
-	//if err2 != nil {
-	//	log.Error("CreateSignedTransaction GetRawTransactionVerbose", "err", err2)
-	//	return &utxo.SignedTransactionResponse{
-	//		Code: common2.ReturnCode_ERROR,
-	//		Msg:  err2.Error(),
-	//	}, err2
-	//}
-	//
-	//log.Info("CreateSignedTransaction ", "from address", preTx.Vout[in.PreviousOutPoint.Index].ScriptPubKey.Address)
-	//
-	//fromAddress, err2 := btcutil.DecodeAddress(preTx.Vout[in.PreviousOutPoint.Index].ScriptPubKey.Address, &chaincfg.MainNetParams)
-	//if err2 != nil {
-	//	log.Error("CreateSignedTransaction DecodeAddress", "err", err2)
-	//	return &utxo.SignedTransactionResponse{
-	//		Code: common2.ReturnCode_ERROR,
-	//		Msg:  err2.Error(),
-	//	}, err2
-	//}
-	//fromPkScript, err2 := txscript.PayToAddrScript(fromAddress)
-	//	if err2 != nil {
-	//		log.Error("CreateSignedTransaction PayToAddrScript", "err", err2)
-	//		return &utxo.SignedTransactionResponse{
-	//			Code: common2.ReturnCode_ERROR,
-	//			Msg:  err2.Error(),
-	//		}, err2
-	//	}
-	//
-	//	if len(req.Signatures[i]) < 64 {
-	//		err2 = errors.New("Invalid signature length")
-	//		return &utxo.SignedTransactionResponse{
-	//			Code: common2.ReturnCode_ERROR,
-	//			Msg:  err2.Error(),
-	//		}, err2
-	//	}
-	//	var r *btcec.ModNScalar
-	//	R := r.SetInt(r.SetBytes((*[32]byte)(req.Signatures[i][0:32])))
-	//	var s *btcec.ModNScalar
-	//	S := s.SetInt(r.SetBytes((*[32]byte)(req.Signatures[i][32:64])))
-	//	btcecSig := ecdsa.NewSignature(R, S)
-	//	sig := append(btcecSig.Serialize(), byte(txscript.SigHashAll))
-	//	sigScript, err2 := txscript.NewScriptBuilder().AddData(sig).AddData(pkData).Script()
-	//	if err2 != nil {
-	//		log.Error("create signed transaction new script builder", "err", err2)
-	//		return &utxo.SignedTransactionResponse{
-	//			Code: common2.ReturnCode_ERROR,
-	//			Msg:  err2.Error(),
-	//		}, err2
-	//	}
-	//	msgTx.TxIn[i].SignatureScript = sigScript
-	//	amount := btcToSatoshi(preTx.Vout[in.PreviousOutPoint.Index].Value).Int64()
-	//	log.Info("CreateSignedTransaction ", "amount", preTx.Vout[in.PreviousOutPoint.Index].Value, "int amount", amount)
-	//
-	//	vm, err2 := txscript.NewEngine(fromPkScript, &msgTx, i, txscript.StandardVerifyFlags, nil, nil, amount, nil)
-	//	if err2 != nil {
-	//		log.Error("create signed transaction newEngine", "err", err2)
-	//		return &utxo.SignedTransactionResponse{
-	//			Code: common2.ReturnCode_ERROR,
-	//			Msg:  err2.Error(),
-	//		}, err2
-	//	}
-	//	if err3 := vm.Execute(); err3 != nil {
-	//		log.Error("CreateSignedTransaction NewEngine Execute", "err", err3)
-	//		return &utxo.SignedTransactionResponse{
-	//			Code: common2.ReturnCode_ERROR,
-	//			Msg:  err3.Error(),
-	//		}, err3
-	//	}
-	//}
-	//// serialize tx
-	//buf := bytes.NewBuffer(make([]byte, 0, msgTx.SerializeSize()))
-	//err = msgTx.Serialize(buf)
-	//if err != nil {
-	//	log.Error("CreateSignedTransaction tx Serialize", "err", err)
-	//	return &utxo.SignedTransactionResponse{
-	//		Code: common2.ReturnCode_ERROR,
-	//		Msg:  err.Error(),
-	//	}, err
-	//}
-	//
-	//hash := msgTx.TxHash()
+	networkParams := &chaincfg.MainNetParams
+	if req.Network != "mainnet" {
+		networkParams = &chaincfg.SimNetParams
+	}
+
+	var msgTx wire.MsgTx
+	if err := msgTx.Deserialize(bytes.NewReader(req.TxData)); err != nil {
+		log.Error("Create signed transaction msg tx deserialize", "err", err)
+		return &utxo.SignedTransactionResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  err.Error(),
+		}, err
+	}
+
+	if len(req.Signatures) != len(msgTx.TxIn) {
+		err := errors.New("Signature number != Txin number")
+		log.Error("CreateSignedTransaction invalid params", "err", err)
+		return &utxo.SignedTransactionResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  err.Error(),
+		}, err
+	}
+
+	if len(req.PublicKeys) != len(msgTx.TxIn) {
+		err := errors.New("Pubkey number != Txin number")
+		log.Error("CreateSignedTransaction invalid params", "err", err)
+		return &utxo.SignedTransactionResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  err.Error(),
+		}, err
+	}
+
+	for i, in := range msgTx.TxIn {
+		btcecPub, err2 := btcec.ParsePubKey(req.PublicKeys[i])
+		if err2 != nil {
+			log.Error("CreateSignedTransaction ParsePubKey", "err", err2)
+			return &utxo.SignedTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  err2.Error(),
+			}, err2
+		}
+		var pkData []byte
+		if btcec.IsCompressedPubKey(req.PublicKeys[i]) {
+			pkData = btcecPub.SerializeCompressed()
+		} else {
+			pkData = btcecPub.SerializeUncompressed()
+		}
+
+		txHash := &in.PreviousOutPoint.Hash
+		log.Info("Getting previous transaction",
+			"txHash", txHash.String(),
+			"index", in.PreviousOutPoint.Index)
+		if txHash.IsEqual(&chainhash.Hash{}) {
+			err2 := errors.New("invalid transaction hash (zero hash)")
+			log.Error("CreateSignedTransaction invalid hash", "err", err2)
+			return &utxo.SignedTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  err2.Error(),
+			}, err2
+		}
+
+		preTx, err2 := c.btcClient.GetRawTransactionVerbose(txHash)
+		if err2 != nil {
+			errMsg := fmt.Sprintf("获取交易 %s 详情失败: %v", txHash.String(), err2)
+			log.Error("CreateSignedTransaction GetRawTransactionVerbose",
+				"txHash", txHash.String(),
+				"err", err2)
+			return &utxo.SignedTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  errMsg,
+			}, err2
+		}
+
+		log.Info("CreateSignedTransaction ", "from address", preTx.Vout[in.PreviousOutPoint.Index].ScriptPubKey.Address)
+
+		fromAddress, err2 := btcutil.DecodeAddress(preTx.Vout[in.PreviousOutPoint.Index].ScriptPubKey.Address, networkParams)
+		if err2 != nil {
+			log.Error("CreateSignedTransaction DecodeAddress", "err", err2)
+			return &utxo.SignedTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  err2.Error(),
+			}, err2
+		}
+		fromPkScript, err2 := txscript.PayToAddrScript(fromAddress)
+		if err2 != nil {
+			log.Error("CreateSignedTransaction PayToAddrScript", "err", err2)
+			return &utxo.SignedTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  err2.Error(),
+			}, err2
+		}
+
+		if len(req.Signatures[i]) < 65 {
+			err2 = errors.New("Invalid signature length")
+			return &utxo.SignedTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  err2.Error(),
+			}, err2
+		}
+
+		sig := req.Signatures[i]
+
+		builder := txscript.NewScriptBuilder()
+		builder.AddData(sig)
+		builder.AddData(pkData)
+		sigScript, err := builder.Script()
+		if err != nil {
+			log.Error("create signed transaction new script builder", "err", err)
+			return &utxo.SignedTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  err.Error(),
+			}, err
+		}
+
+		msgTx.TxIn[i].SignatureScript = sigScript
+
+		amount := btcToSatoshi(preTx.Vout[in.PreviousOutPoint.Index].Value).Int64()
+		log.Info("CreateSignedTransaction ", "amount", preTx.Vout[in.PreviousOutPoint.Index].Value, "int amount", amount)
+
+		vm, err := txscript.NewEngine(fromPkScript,
+			&msgTx,
+			i,
+			txscript.StandardVerifyFlags,
+			nil,
+			nil,
+			amount,
+			nil)
+		if err != nil {
+			log.Error("create signed transaction newEngine", "err", err)
+			return &utxo.SignedTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  err.Error(),
+			}, err
+		}
+
+		if err := vm.Execute(); err != nil {
+			log.Error("CreateSignedTransaction NewEngine Execute", "err", err)
+			return &utxo.SignedTransactionResponse{
+				Code: common2.ReturnCode_ERROR,
+				Msg:  err.Error(),
+			}, err
+		}
+	}
+	// 序列化交易
+	buf := bytes.NewBuffer(make([]byte, 0, msgTx.SerializeSize()))
+	if err := msgTx.Serialize(buf); err != nil {
+		log.Error("CreateSignedTransaction tx Serialize", "err", err)
+		return &utxo.SignedTransactionResponse{
+			Code: common2.ReturnCode_ERROR,
+			Msg:  err.Error(),
+		}, err
+	}
+
+	// 计算交易哈希
+	hash := msgTx.TxHash()
+
 	return &utxo.SignedTransactionResponse{
-		Code: common2.ReturnCode_SUCCESS,
-		//SignedTxData: buf.Bytes(),
-		//Hash:         (&hash).CloneBytes(),
+		Code:         common2.ReturnCode_SUCCESS,
+		SignedTxData: buf.Bytes(),
+		Hash:         (&hash).CloneBytes(),
 	}, nil
 }
 
 func (c *ChainAdaptor) DecodeTransaction(req *utxo.DecodeTransactionRequest) (*utxo.DecodeTransactionResponse, error) {
-	res, err := c.DecodeTx(req.RawData, req.Vins, false)
+	response := &utxo.DecodeTransactionResponse{
+		Code: common2.ReturnCode_ERROR,
+		Msg:  "",
+	}
+	if ok, msg := validateChainAndNetwork(req.Chain, ""); !ok {
+		err := fmt.Errorf("CreateUnSignTransaction validateChainAndNetwork default failed: %s", msg)
+		log.Error("err", err)
+		response.Msg = err.Error()
+		return nil, err
+	}
+
+	networkParams := &chaincfg.MainNetParams
+	if req.Network != "mainnet" {
+		networkParams = &chaincfg.SimNetParams
+	}
+
+	res, err := c.DecodeTx(networkParams, req.RawData, req.Vins, false)
 	if err != nil {
 		log.Info("decode tx fail", "err", err)
 		return &utxo.DecodeTransactionResponse{
@@ -707,33 +826,48 @@ func (c *ChainAdaptor) DecodeTransaction(req *utxo.DecodeTransactionRequest) (*u
 			Msg:  err.Error(),
 		}, err
 	}
-	return &utxo.DecodeTransactionResponse{
-		Code:       common2.ReturnCode_SUCCESS,
-		Msg:        "decode transaction response",
-		SignHashes: res.SignHashes,
-		Status:     utxo.TxStatus_Other,
-		Vins:       res.Vins,
-		Vouts:      res.Vouts,
-		CostFee:    res.CostFee.String(),
-	}, nil
+	response.Code = common2.ReturnCode_SUCCESS
+	response.Msg = "decode transaction response"
+	response.SignHashes = res.SignHashes
+	response.Status = utxo.TxStatus_Other
+	response.Vins = res.Vins
+	response.Vouts = res.Vouts
+	response.CostFee = res.CostFee.String()
+	return response, nil
 }
 
 func (c *ChainAdaptor) VerifySignedTransaction(req *utxo.VerifyTransactionRequest) (*utxo.VerifyTransactionResponse, error) {
-	_, err := c.DecodeTx([]byte(""), nil, true)
-	if err != nil {
-		return &utxo.VerifyTransactionResponse{
-			Code: common2.ReturnCode_ERROR,
-			Msg:  err.Error(),
-		}, err
+	response := &utxo.VerifyTransactionResponse{
+		Code:   common2.ReturnCode_ERROR,
+		Msg:    "",
+		Verify: false,
 	}
-	return &utxo.VerifyTransactionResponse{
-		Code:   common2.ReturnCode_SUCCESS,
-		Msg:    "verify transaction success",
-		Verify: true,
-	}, nil
+	if ok, msg := validateChainAndNetwork(req.Chain, ""); !ok {
+		err := fmt.Errorf("VerifySignedTransaction validateChainAndNetwork default failed: %s", msg)
+		log.Error("err", err)
+		response.Msg = err.Error()
+		return nil, err
+	}
+
+	networkParams := &chaincfg.MainNetParams
+	if req.Network != "mainnet" {
+		networkParams = &chaincfg.SimNetParams
+	}
+
+	_, err := c.DecodeTx(networkParams, []byte(""), nil, true)
+	if err != nil {
+		err := fmt.Errorf("VerifySignedTransaction DecodeTx failed: %w", err)
+		log.Error("err", err)
+		response.Msg = err.Error()
+		return nil, err
+	}
+	response.Code = common2.ReturnCode_SUCCESS
+	response.Msg = "verify transaction success"
+	response.Verify = true
+	return response, nil
 }
 
-func (c *ChainAdaptor) CalcSignHashes(Vins []*utxo.Vin, Vouts []*utxo.Vout) ([][]byte, []byte, error) {
+func (c *ChainAdaptor) CalcSignHashes(networkParams *chaincfg.Params, Vins []*utxo.Vin, Vouts []*utxo.Vout) ([][]byte, []byte, error) {
 	if len(Vins) == 0 || len(Vouts) == 0 {
 		return nil, nil, errors.New("invalid len in or out")
 	}
@@ -741,18 +875,21 @@ func (c *ChainAdaptor) CalcSignHashes(Vins []*utxo.Vin, Vouts []*utxo.Vout) ([][
 	for _, in := range Vins {
 		utxoHash, err := chainhash.NewHashFromStr(in.Hash)
 		if err != nil {
+			log.Error("NewHashFromStr", "in.Hash", in.Hash, "err", err)
 			return nil, nil, err
 		}
 		txIn := wire.NewTxIn(wire.NewOutPoint(utxoHash, in.Index), nil, nil)
 		rawTx.AddTxIn(txIn)
 	}
 	for _, out := range Vouts {
-		toAddress, err := btcutil.DecodeAddress(out.Address, &chaincfg.MainNetParams)
+		toAddress, err := btcutil.DecodeAddress(out.Address, networkParams)
 		if err != nil {
+			log.Error("DecodeAddress", "out.Address", out.Address, "err", err)
 			return nil, nil, err
 		}
 		toPkScript, err := txscript.PayToAddrScript(toAddress)
 		if err != nil {
+			log.Error("PayToAddrScript", "out.Address", out.Address, "err", err)
 			return nil, nil, err
 		}
 		rawTx.AddTxOut(wire.NewTxOut(out.Amount, toPkScript))
@@ -760,28 +897,39 @@ func (c *ChainAdaptor) CalcSignHashes(Vins []*utxo.Vin, Vouts []*utxo.Vout) ([][
 	signHashes := make([][]byte, len(Vins))
 	for i, in := range Vins {
 		from := in.Address
-		fromAddr, err := btcutil.DecodeAddress(from, &chaincfg.MainNetParams)
+		fromAddr, err := btcutil.DecodeAddress(from, networkParams)
 		if err != nil {
-			log.Info("decode address error", "from", from, "err", err)
+			log.Error("decode address error", "from", from, "err", err)
 			return nil, nil, err
 		}
 		fromPkScript, err := txscript.PayToAddrScript(fromAddr)
 		if err != nil {
-			log.Info("pay to addr script err", "err", err)
+			log.Error("pay to addr script err", "err", err)
 			return nil, nil, err
 		}
 		signHash, err := txscript.CalcSignatureHash(fromPkScript, txscript.SigHashAll, rawTx, i)
 		if err != nil {
-			log.Info("Calc signature hash error", "err", err)
+			log.Error("Calc signature hash error", "err", err)
 			return nil, nil, err
 		}
 		signHashes[i] = signHash
 	}
-	buf := bytes.NewBuffer(make([]byte, 0, rawTx.SerializeSize()))
+
+	txSize := rawTx.SerializeSize()
+	var buf bytes.Buffer
+	buf.Grow(txSize)
+
+	if err := rawTx.Serialize(&buf); err != nil {
+		log.Error("serialize transaction error",
+			"err", err,
+			"inputs", len(Vins),
+			"outputs", len(Vouts))
+		return nil, nil, err
+	}
 	return signHashes, buf.Bytes(), nil
 }
 
-func (c *ChainAdaptor) DecodeTx(txData []byte, vins []*utxo.Vin, sign bool) (*DecodeTxRes, error) {
+func (c *ChainAdaptor) DecodeTx(networkParams *chaincfg.Params, txData []byte, vins []*utxo.Vin, sign bool) (*DecodeTxRes, error) {
 	var msgTx wire.MsgTx
 	err := msgTx.Deserialize(bytes.NewReader(txData))
 	if err != nil {
@@ -806,7 +954,7 @@ func (c *ChainAdaptor) DecodeTx(txData []byte, vins []*utxo.Vin, sign bool) (*De
 		return nil, err
 	}
 
-	signHashes, _, err := c.CalcSignHashes(ins, outs)
+	signHashes, _, err := c.CalcSignHashes(networkParams, ins, outs)
 	if err != nil {
 		return nil, err
 	}
@@ -862,23 +1010,23 @@ func (c *ChainAdaptor) DecodeVouts(msgTx wire.MsgTx) ([]*utxo.Vout, *big.Int, er
 
 func (c *ChainAdaptor) GetVin(offline bool, vins []*utxo.Vin, index int, in *wire.TxIn) (*utxo.Vin, error) {
 	var vin *utxo.Vin
-	//if offline {
-	//	vin = vins[index]
-	//} else {
-	//	preTx, err := c.btcClient.GetRawTransactionVerbose(&in.PreviousOutPoint.Hash)
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	out := preTx.Vout[in.PreviousOutPoint.Index]
-	//	vin = &utxo.Vin{
-	//		Hash:    "",
-	//		Index:   0,
-	//		Amount:  btcToSatoshi(out.Value).Int64(),
-	//		Address: out.ScriptPubKey.Address,
-	//	}
-	//}
-	//vin.Hash = in.PreviousOutPoint.Hash.String()
-	//vin.Index = in.PreviousOutPoint.Index
+	if offline {
+		vin = vins[index]
+	} else {
+		preTx, err := c.btcClient.GetRawTransactionVerbose(&in.PreviousOutPoint.Hash)
+		if err != nil {
+			return nil, err
+		}
+		out := preTx.Vout[in.PreviousOutPoint.Index]
+		vin = &utxo.Vin{
+			Hash:    "",
+			Index:   0,
+			Amount:  btcToSatoshi(out.Value).Int64(),
+			Address: out.ScriptPubKey.Address,
+		}
+	}
+	vin.Hash = in.PreviousOutPoint.Hash.String()
+	vin.Index = in.PreviousOutPoint.Index
 	return vin, nil
 }
 

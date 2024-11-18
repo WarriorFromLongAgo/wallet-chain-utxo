@@ -3,10 +3,12 @@ package bitcoin
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/dapplink-labs/wallet-chain-utxo/chain/base"
-	"github.com/stretchr/testify/assert"
+	"strconv"
+	"strings"
 	"testing"
+
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -15,8 +17,120 @@ const (
 	rpcPassword = "123456"
 )
 
+func Test_Client_GetAddressUnspent(t *testing.T) {
+	client, err := NewBtcdClient(baseURL, rpcUser, rpcPassword)
+	assert.NoError(t, err, "BaseClient initialization failed")
+	assert.NotNil(t, client, "BaseClient should not be nil")
+
+	t.Run("GetAddressUnspent", func(t *testing.T) {
+		// 使用测试地址（这是之前挖矿奖励的地址）
+		const (
+			// sb1q5hfl9hwlkkqtldwfywuhkksev8ecc8gy5w650w
+			address = "SQW4z4BsNZKR42GP1752JqjEiG91PuFa3R"
+		)
+
+		unspents, err := client.GetAddressUnspent(address)
+		assert.NoError(t, err, "failed to GetAddressUnspent")
+
+		fmt.Printf("\n=== Address Unspent Information ===\n")
+		fmt.Printf("Address: %s\n", address)
+		fmt.Printf("Total UTXOs: %d\n", len(unspents))
+
+		// 打印每个 UTXO 的详细信息
+		for i, utxo := range unspents {
+			fmt.Printf("\nUTXO #%d:\n", i+1)
+			fmt.Printf("  TxID: %s\n", utxo.TxID)
+			fmt.Printf("  Vout: %d\n", utxo.Vout)
+			fmt.Printf("  Amount: %f BTC\n", utxo.Amount)
+			fmt.Printf("  Confirmations: %d\n", utxo.Confirmations)
+			fmt.Printf("  ScriptPubKey: %s\n", utxo.ScriptPubKey)
+
+			// 验证 UTXO 字段
+			assert.NotEmpty(t, utxo.TxID, "transaction ID should not be empty")
+			assert.GreaterOrEqual(t, utxo.Amount, float64(0), "amount should be >= 0")
+			assert.GreaterOrEqual(t, utxo.Confirmations, int64(0), "confirmations should be >= 0")
+			assert.NotEmpty(t, utxo.ScriptPubKey, "scriptPubKey should not be empty")
+		}
+	})
+
+	t.Run("GetAddressUnspent_InvalidAddress", func(t *testing.T) {
+		// 测试无效地址
+		invalidAddress := "invalid_address"
+
+		unspents, err := client.GetAddressUnspent(invalidAddress)
+		assert.Error(t, err, "should fail with invalid address")
+		assert.Nil(t, unspents, "unspents should be nil for invalid address")
+
+		fmt.Printf("\n=== Invalid Address Test ===\n")
+		fmt.Printf("Address: %s\n", invalidAddress)
+		fmt.Printf("Error: %v\n", err)
+	})
+}
+
+func Test_Client_GetAddressBalance(t *testing.T) {
+	client, err := NewBtcdClient(baseURL, rpcUser, rpcPassword)
+	assert.NoError(t, err, "BaseClient initialization failed")
+	assert.NotNil(t, client, "BaseClient should not be nil")
+
+	t.Run("GetAddressBalance", func(t *testing.T) {
+		// 使用测试地址
+		const (
+			// sb1q5hfl9hwlkkqtldwfywuhkksev8ecc8gy5w650w
+			// SQW4z4BsNZKR42GP1752JqjEiG91PuFa3R
+			address = "SQW4z4BsNZKR42GP1752JqjEiG91PuFa3R"
+		)
+
+		balance, err := client.GetAddressBalance(address)
+		assert.NoError(t, err, "failed to GetAddressBalance")
+		assert.NotEmpty(t, balance, "balance should not be empty")
+
+		fmt.Printf("\n=== Address Balance Information ===\n")
+		fmt.Printf("Address: %s\n", address)
+		fmt.Printf("Balance: %s BTC\n", balance)
+
+		// 验证余额格式和数值
+		balanceFloat, err := strconv.ParseFloat(balance, 64)
+		assert.NoError(t, err, "balance should be a valid number")
+		assert.GreaterOrEqual(t, balanceFloat, float64(0), "balance should be >= 0")
+
+		// 验证小数位数
+		parts := strings.Split(balance, ".")
+		if len(parts) > 1 {
+			assert.LessOrEqual(t, len(parts[1]), 8, "balance should have at most 8 decimal places")
+		}
+	})
+
+	t.Run("GetAddressBalance_InvalidAddress", func(t *testing.T) {
+		// 测试无效地址
+		invalidAddress := "invalid_address"
+
+		balance, err := client.GetAddressBalance(invalidAddress)
+		assert.Error(t, err, "should fail with invalid address")
+		assert.Equal(t, "0", balance, "balance should be '0' for invalid address")
+
+		fmt.Printf("\n=== Invalid Address Balance Test ===\n")
+		fmt.Printf("Address: %s\n", invalidAddress)
+		fmt.Printf("Balance: %s\n", balance)
+		fmt.Printf("Error: %v\n", err)
+	})
+
+	t.Run("GetAddressBalance_EmptyAddress", func(t *testing.T) {
+		// 测试空地址
+		emptyAddress := ""
+
+		balance, err := client.GetAddressBalance(emptyAddress)
+		assert.Error(t, err, "should fail with empty address")
+		assert.Equal(t, "0", balance, "balance should be '0' for empty address")
+
+		fmt.Printf("\n=== Empty Address Balance Test ===\n")
+		fmt.Printf("Address: %s\n", emptyAddress)
+		fmt.Printf("Balance: %s\n", balance)
+		fmt.Printf("Error: %v\n", err)
+	})
+}
+
 func Test_Client_GetLatestBlockHash(t *testing.T) {
-	client, err := base.NewBaseClient(baseURL, rpcUser, rpcPassword)
+	client, err := NewBtcdClient(baseURL, rpcUser, rpcPassword)
 	assert.NoError(t, err, "BaseClient initialization failed")
 	assert.NotNil(t, client, "BaseClient should not be nil")
 
@@ -32,7 +146,7 @@ func Test_Client_GetLatestBlockHash(t *testing.T) {
 }
 
 func Test_Client_GetLatestBlock(t *testing.T) {
-	client, err := base.NewBaseClient(baseURL, rpcUser, rpcPassword)
+	client, err := NewBtcdClient(baseURL, rpcUser, rpcPassword)
 	assert.NoError(t, err, "BaseClient initialization failed")
 	assert.NotNil(t, client, "BaseClient should not be nil")
 
@@ -53,7 +167,7 @@ func Test_Client_GetLatestBlock(t *testing.T) {
 
 func Test_Client_GetBlock(t *testing.T) {
 	// Initialize BaseClient
-	client, err := base.NewBaseClient(baseURL, rpcUser, rpcPassword)
+	client, err := NewBtcdClient(baseURL, rpcUser, rpcPassword)
 	assert.NoError(t, err, "BaseClient initialization failed")
 	assert.NotNil(t, client, "BaseClient should not be nil")
 
@@ -134,7 +248,7 @@ func Test_Client_GetBlockVerbose(t *testing.T) {
 		hash = "5e8fde864104e5f5ca2511bcc6c8566074d141a8d17219b027877bae836c7519"
 	)
 	// Initialize BaseClient
-	client, err := base.NewBaseClient(baseURL, rpcUser, rpcPassword)
+	client, err := NewBtcdClient(baseURL, rpcUser, rpcPassword)
 	assert.NoError(t, err, "BaseClient initialization failed")
 	assert.NotNil(t, client, "BaseClient should not be nil")
 
@@ -225,7 +339,7 @@ func Test_Client_GetBlockVerboseTx(t *testing.T) {
 		hash = "5e8fde864104e5f5ca2511bcc6c8566074d141a8d17219b027877bae836c7519"
 	)
 	// Initialize BaseClient
-	client, err := base.NewBaseClient(baseURL, rpcUser, rpcPassword)
+	client, err := NewBtcdClient(baseURL, rpcUser, rpcPassword)
 	assert.NoError(t, err, "BaseClient initialization failed")
 	assert.NotNil(t, client, "BaseClient should not be nil")
 
@@ -271,11 +385,11 @@ func Test_Client_GetBlockVerboseTx(t *testing.T) {
 
 		t.Run("Detailed Transaction Validation", func(t *testing.T) {
 			fmt.Printf("\n=== Transaction Details ===\n")
-			fmt.Printf("Total Transactions: %d\n", len(base.GetBlockVerboseTx(resp)))
-			assert.GreaterOrEqual(t, len(base.GetBlockVerboseTx(resp)), 1, "should have at least one transaction")
+			fmt.Printf("Total Transactions: %d\n", len(GetBlockVerboseTx(resp)))
+			assert.GreaterOrEqual(t, len(GetBlockVerboseTx(resp)), 1, "should have at least one transaction")
 
 			// 验证前几个交易的详细信息
-			for i, tx := range base.GetBlockVerboseTx(resp) {
+			for i, tx := range GetBlockVerboseTx(resp) {
 				if i >= 5 { // 只打印前5个交易
 					fmt.Println("...")
 					break
@@ -321,7 +435,7 @@ func Test_Client_GetBlockHeader(t *testing.T) {
 	const (
 		hash = "5e8fde864104e5f5ca2511bcc6c8566074d141a8d17219b027877bae836c7519"
 	)
-	client, err := base.NewBaseClient(baseURL, rpcUser, rpcPassword)
+	client, err := NewBtcdClient(baseURL, rpcUser, rpcPassword)
 	assert.NoError(t, err, "BaseClient initialization failed")
 	assert.NotNil(t, client, "BaseClient should not be nil")
 
@@ -348,7 +462,7 @@ func Test_Client_GetBlockHeaderVerbose(t *testing.T) {
 	const (
 		hash = "5e8fde864104e5f5ca2511bcc6c8566074d141a8d17219b027877bae836c7519"
 	)
-	client, err := base.NewBaseClient(baseURL, rpcUser, rpcPassword)
+	client, err := NewBtcdClient(baseURL, rpcUser, rpcPassword)
 	assert.NoError(t, err, "BaseClient initialization failed")
 	assert.NotNil(t, client, "BaseClient should not be nil")
 
@@ -368,7 +482,7 @@ func Test_Client_GetBlockHeaderVerbose(t *testing.T) {
 }
 
 func Test_Client_GetBlockChainInfo(t *testing.T) {
-	client, err := base.NewBaseClient(baseURL, rpcUser, rpcPassword)
+	client, err := NewBtcdClient(baseURL, rpcUser, rpcPassword)
 	assert.NoError(t, err, "BaseClient initialization failed")
 	assert.NotNil(t, client, "BaseClient should not be nil")
 
@@ -395,7 +509,7 @@ func Test_Client_GetBlockChainInfo(t *testing.T) {
 }
 
 func Test_Client_GetBlockCount(t *testing.T) {
-	client, err := base.NewBaseClient(baseURL, rpcUser, rpcPassword)
+	client, err := NewBtcdClient(baseURL, rpcUser, rpcPassword)
 	assert.NoError(t, err, "BaseClient initialization failed")
 	assert.NotNil(t, client, "BaseClient should not be nil")
 
@@ -411,7 +525,7 @@ func Test_Client_GetBlockCount(t *testing.T) {
 }
 
 func Test_Client_GetBlockHashByHeight(t *testing.T) {
-	client, err := base.NewBaseClient(baseURL, rpcUser, rpcPassword)
+	client, err := NewBtcdClient(baseURL, rpcUser, rpcPassword)
 	assert.NoError(t, err, "BaseClient initialization failed")
 	assert.NotNil(t, client, "BaseClient should not be nil")
 
